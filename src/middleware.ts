@@ -11,6 +11,8 @@ const handleI18nRouting = createMiddleware(routing);
 const isProtectedRoute = createRouteMatcher([
   '/dashboard(.*)',
   '/:locale/dashboard(.*)',
+  '/api/gemini(.*)',
+  '/:locale/api/gemini(.*)',
 ]);
 
 const isAuthPage = createRouteMatcher([
@@ -38,23 +40,32 @@ export default async function middleware(
   request: NextRequest,
   event: NextFetchEvent,
 ) {
-  // Verify the request with Arcjet
-  // Use `process.env` instead of Env to reduce bundle size in middleware
-  if (process.env.ARCJET_KEY) {
-    const decision = await aj.protect(request);
-
-    if (decision.isDenied()) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-  }
-
   // Clerk keyless mode doesn't work with i18n, this is why we need to run the middleware conditionally
   if (
     isAuthPage(request) || isProtectedRoute(request)
   ) {
     return clerkMiddleware(async (auth, req) => {
+      const { userId } = auth();
+
+      // Verify the request with Arcjet
+      // Use `process.env` instead of Env to reduce bundle size in middleware
+      if (process.env.ARCJET_KEY) {
+        const decision = await aj.protect(req, { userId });
+
+        if (decision.isDenied()) {
+          if (decision.reason.isRateLimit()) {
+            return NextResponse.json(
+              { error: 'Too Many Requests' },
+              { status: 429 },
+            );
+          }
+          return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+      }
+
       if (isProtectedRoute(req)) {
-        const locale = req.nextUrl.pathname.match(/(\/.*)\/dashboard/)?.at(1) ?? '';
+        const locale =
+          req.nextUrl.pathname.match(/(\/.*)\/dashboard/)?.at(1) ?? '';
 
         const signInUrl = new URL(`${locale}/sign-in`, req.url);
 
@@ -65,6 +76,15 @@ export default async function middleware(
 
       return handleI18nRouting(request);
     })(request, event);
+  }
+
+  // For all other requests, just run Arcjet
+  if (process.env.ARCJET_KEY) {
+    const decision = await aj.protect(request);
+
+    if (decision.isDenied()) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
   }
 
   return handleI18nRouting(request);

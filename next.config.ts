@@ -12,6 +12,14 @@ const baseConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   serverExternalPackages: ['@electric-sql/pglite'],
+  // Allow cross-origin requests from Replit subdomain during development
+  experimental: {
+    allowedDevOrigins: process.env.NODE_ENV === 'development' ? [
+      'a20d6145-57e5-4482-9276-b7ca0d4b33af-00-1jk8avtuip5ot.sisko.repl.co',
+      // Allow any repl.co subdomain for flexibility
+      /.*\.repl\.co$/,
+    ] : undefined,
+  },
 };
 
 // Initialize the Next-Intl plugin
